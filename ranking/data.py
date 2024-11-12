@@ -62,9 +62,9 @@ class DatasetPreparer:
                     continue
                 assert word_end <= len(word_offsets)
                 if self.wrap_empty_edits and (word_end == word_start or len(input_ids_to_insert) == 0):
-                        # wrapping insertion or deletion
-                        word_start = max(word_start-1, 0)
-                        word_end = min(word_end+1, len(input_ids_by_words))
+                    # wrapping insertion or deletion
+                    word_start = max(word_start - 1, 0)
+                    word_end = min(word_end + 1, len(input_ids_by_words))
                 origin_start, origin_end = word_offsets[word_start] + 1, word_offsets[word_end] + 1
                 if origin_end == origin_start:
                     origin_end += 1
@@ -90,9 +90,11 @@ class DatasetPreparer:
                 # that check is expected to be always true, but we prevent bound violation
                 continue
             assert origin_end >= origin_start
+            flag = edit_end - edit_start - origin_end + origin_start
             output_edit = {
-                "input_ids": pair_input_ids, "start": edit_start, "end": edit_end,
-                "origin_start": origin_start, "origin_end": origin_end
+                "input_ids": pair_input_ids, "start": edit_start, "end": edit_end, "words": edit["words"],
+                "origin_start": origin_start, "origin_end": origin_end, "flag": flag, "target": edit["target"],
+                "source": edit["source"]
             }
             if has_answers and "is_correct" in edit:
                 output_edit["label"] = int(edit["is_correct"])
@@ -105,11 +107,13 @@ class DatasetPreparer:
                 if default_index is not None and i != default_index:
                     no_change_pairs.append([i, default_index] if elem["label"] else [default_index, i])
             for (i_pos, elem_pos), (i_neg, elem_neg) in itertools.product(positive, negative):
-                is_pair_hard = do_spans_overlap((elem_pos["start"], elem_pos["end"]), (elem_neg["start"], elem_neg["end"]))
+                is_pair_hard = do_spans_overlap((elem_pos["start"], elem_pos["end"]),
+                                                (elem_neg["start"], elem_neg["end"]))
                 (hard_pairs if is_pair_hard else soft_pairs).append([i_pos, i_neg])
             hard_pairs = np.array(hard_pairs) if len(hard_pairs) > 0 else np.zeros(shape=(0, 2), dtype=int)
             soft_pairs = np.array(soft_pairs) if len(soft_pairs) > 0 else np.zeros(shape=(0, 2), dtype=int)
-            no_change_pairs = np.array(no_change_pairs) if len(no_change_pairs) > 0 else np.zeros(shape=(0, 2), dtype=int)
+            no_change_pairs = np.array(no_change_pairs) if len(no_change_pairs) > 0 else np.zeros(shape=(0, 2),
+                                                                                                  dtype=int)
             answer.update({"hard_pairs": hard_pairs, "soft_pairs": soft_pairs, "no_change_pairs": no_change_pairs})
         return answer
     
@@ -136,7 +140,7 @@ class BatchIndexesSampler:
         generator.manual_seed(self.random_seed)
         indexes = torch.randperm(len(self.data), generator=generator).tolist()
         # indexes = torch.randperm(len(self.data)).tolist()
-        buckets = [indexes[start:start+self.bucket_size] for start in range(0, len(self.data), self.bucket_size)]
+        buckets = [indexes[start:start + self.bucket_size] for start in range(0, len(self.data), self.bucket_size)]
         buckets = [sorted(bucket, key=lambda i: self.lengths[i], reverse=True) for bucket in buckets]
         for bucket in buckets:
             curr_indexes, curr_batch_size, batch_size = [], 0, None
@@ -174,7 +178,7 @@ class BatchCollator:
         for key in self.pad_fields:
             L = max(len(x) for x in answer[key])
             for elem in answer[key]:
-                elem.extend([self.pad] * (L-len(elem)))
+                elem.extend([self.pad] * (L - len(elem)))
         for key in self.tensor_fields:
             if key in answer:
                 answer[key] = torch.as_tensor(answer[key], device=self.device)
@@ -226,9 +230,13 @@ def prepare_dataset(infiles, model="roberta-base", language="en",
     ).prepare(flat_data, has_answers=has_answers)
     return answer, (flat_data if return_flat else data)
 
-def prepare_dataloader(data, batch_size=1500, device="cuda"):
+
+def prepare_dataloader(data, batch_size=1500, device="cuda", shuffle=False):
     batch_sampler = BatchIndexesSampler(data, total_batch_size=batch_size)
-    return DataLoader(data, batch_sampler=batch_sampler, collate_fn=BatchCollator(device=device))
+    if shuffle == True:
+        return DataLoader(data, shuffle=shuffle, collate_fn=BatchCollator(device=device))
+    else:
+        return DataLoader(data, shuffle=shuffle, batch_sampler=batch_sampler, collate_fn=BatchCollator(device=device))
 
 
 def output_predictions(predictions, data, file=None):
@@ -245,7 +253,8 @@ def output_predictions(predictions, data, file=None):
             is_ok = "OK" if (edit["is_correct"] == bool(label)) else "ERROR"
             target = "" if edit["target"] is None else edit["target"]
             print(*(edit["words"]), file=fout)
-            print(f"{edit['start']} {edit['end']} {edit['source'].replace(' ', '_')}->{target.replace(' ', '_')}", end=" ", file=fout)
+            print(f"{edit['start']} {edit['end']} {edit['source'].replace(' ', '_')}->{target.replace(' ', '_')}",
+                  end=" ", file=fout)
             if "diff" in edit:
                 print(f"diff={edit['diff']:.2f} score={prob:.2f} label={label} {is_ok}", file=fout)
             else:

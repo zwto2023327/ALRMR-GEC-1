@@ -20,6 +20,7 @@ def probs_to_labels(probs, default_index, threshold=0.5):
 
 def item_score_func(y_true, y_pred, threshold=0.5, from_labels=False):
     TP, FN, FP, correct = 0, 0, 0, 0
+    error_list = []
     if not from_labels:
         y_pred = probs_to_labels(y_pred, y_true["default"], threshold)
     for index, (label, pred_label) in enumerate(zip(y_true["label"], y_pred)):
@@ -30,10 +31,11 @@ def item_score_func(y_true, y_pred, threshold=0.5, from_labels=False):
             elif pred_label == 1:
                 FP += 1
         correct += is_correct
+        error_list.append(is_correct)
     all_correct = int(correct == len(y_pred))
     return {"TP": TP, "FP": FP, "FN": FN, "total": len(y_pred), "correct": correct,
-            "seq_correct": all_correct, "seq_total": 1}
 
+            "seq_correct": all_correct, "seq_total": 1, "error_list": error_list}
 
 def evaluate_predictions(predictions, dataset, threshold=0.5, from_labels=True):
     metrics = dict()
@@ -42,7 +44,8 @@ def evaluate_predictions(predictions, dataset, threshold=0.5, from_labels=True):
         y_true = {"label": [x["label"] for x in curr_data["data"]], "default": curr_data["default"]}
         curr_metrics = item_score_func(y_true, curr_answer[label_key], from_labels=from_labels, threshold=threshold)
         for key, value in curr_metrics.items():
-            metrics[key] = metrics.get(key, 0) + value
+            if key != "error_list":
+                metrics[key] = metrics.get(key, 0) + value
         aggregate_binary_sequence_metrics(metrics, alpha=0.5)
     return metrics
     

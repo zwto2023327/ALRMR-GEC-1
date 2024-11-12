@@ -33,9 +33,9 @@ argument_parser.add_argument("--save_processed_dev", default=None)
 argument_parser.add_argument("--only_process_dataset", action="store_true")
 argument_parser.add_argument("--language", default=None)
 argument_parser.add_argument("--max_length", default=200, type=int)
-argument_parser.add_argument("-T", "--test_file", default="data/english_reranking/dev_1.bea.variants")
+argument_parser.add_argument("-T", "--test_file", default="data/bea_reranking/gector_variants/bea.dev.variants")
 argument_parser.add_argument("-n", "--max_sents", default=None, type=int)
-argument_parser.add_argument("-m", "--model", default="roberta-base")
+argument_parser.add_argument("-m", "--model", required=True)
 argument_parser.add_argument("-L", "--load", default=None)
 argument_parser.add_argument("-a", "--attention_layers", default=0, type=int)
 argument_parser.add_argument("-C", "--cross_attention", action="store_true")
@@ -46,8 +46,8 @@ argument_parser.add_argument("-O", "--use_origin", action="store_true")
 argument_parser.add_argument("--alpha_contrastive", default=0.0, type=float)
 argument_parser.add_argument("--average_loss_for_sample", dest="average_loss_for_batch", action="store_false")
 argument_parser.add_argument("-I", "--concat_mode", default=None, type=str, choices=['infersent'])
-argument_parser.add_argument("-M", "--mlp_hidden", default=None, type=lambda x:eval(f"[{x}]"))
-argument_parser.add_argument("--mlp_dropout", default=0.0, type=float)
+argument_parser.add_argument("-M", "--mlp_hidden", default="768", type=lambda x:eval(f"[{x}]"))
+argument_parser.add_argument("--mlp_dropout", default=0, type=float)
 argument_parser.add_argument("--loss_by_class", action="store_true")
 argument_parser.add_argument("--init_with_last_layer", action="store_true")
 argument_parser.add_argument("-P", "--alpha_pos", default=1.0, type=float)
@@ -56,11 +56,11 @@ argument_parser.add_argument("-H", "--alpha_hard", default=0.0, type=float)
 argument_parser.add_argument("-N", "--alpha_no_change", default=0.0, type=float)
 argument_parser.add_argument("-c", "--checkpoint_dir", default=None)
 argument_parser.add_argument("--save_all_checkpoints", action="store_true")
-argument_parser.add_argument("-b", "--batch_size", default=3500, type=int)
-argument_parser.add_argument("-e", "--epochs", default=3, type=int)
+argument_parser.add_argument("-b", "--batch_size", default=64, type=int)
+argument_parser.add_argument("-e", "--epochs", default=500, type=int)
 argument_parser.add_argument("--initial_epoch", default=0, type=int)
 argument_parser.add_argument("--eval_every_n_steps", dest="eval_steps", default=None, type=int)
-argument_parser.add_argument("-E", "--recall_estimate", default=None, type=float)
+argument_parser.add_argument("-E", "--recall_estimate", default=0.4, type=float)
 argument_parser.add_argument("--lr", default=1e-5, type=float)
 argument_parser.add_argument("--attention_lr", default=None, type=float)
 argument_parser.add_argument("--clip", default=None, type=float)
@@ -80,6 +80,7 @@ OPTIMIZER_KEYS = ["lr", "clip", "scheduler", "warmup", "batches_per_update"]
 if __name__ == "__main__":
     args = argument_parser.parse_args()
     args.alpha_hard = max(args.alpha_hard, args.alpha_soft)
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     if args.use_origin:
         args.position_mode = "mean"
     dataset_args = {
@@ -101,11 +102,9 @@ if __name__ == "__main__":
         t1 = time()
         if args.save_processed_train:
             with open(args.save_processed_train, "wb") as fout:
-                # json.dump([train_dataset, train_data], fout, cls=NumpyEncoder)
                 fout.write(orjson.dumps([train_dataset, train_data], option=orjson.OPT_SERIALIZE_NUMPY))
         if args.save_processed_dev:
             with open(args.save_processed_dev, "wb") as fout:
-                # json.dump([dev_dataset, dev_data], fout, cls=NumpyEncoder)
                 fout.write(orjson.dumps([dev_dataset, dev_data], option=orjson.OPT_SERIALIZE_NUMPY))
         t2 = time()
         print(f"Total saving time {(t2-t1):.2f}")
@@ -117,7 +116,6 @@ if __name__ == "__main__":
     train_dataset = [train_dataset[i] for i in short_indexes]
     train_data = [train_data[i] for i in short_indexes]
     print("Train dataset length after length filtering", len(train_dataset))
-    # assert all(len(elem["data"][0]["input_ids"]) <= args.max_length for elem in dev_dataset)
     print("Initializing the model...")
     model_args = {key: getattr(args, key) for key in MODEL_KEYS}
     optimizer_args = {key: getattr(args, key) for key in OPTIMIZER_KEYS}
@@ -137,9 +135,9 @@ if __name__ == "__main__":
     model = cls(model=args.model, mlp_hidden=args.mlp_hidden, device="cuda",
                 use_position=args.use_position, **model_args, **optimizer_args)
     if args.load is not None:
-        model.load_state_dict(torch.load(args.load))
+        model.load_state_dict(torch.load(args.load), False)
     torch.manual_seed(args.seed)
-    train_dataloader = prepare_dataloader(train_dataset, batch_size=args.batch_size, device=model.device)
+    train_dataloader = prepare_dataloader(train_dataset, shuffle=True, batch_size=args.batch_size, device=model.device)
     dev_dataloader = prepare_dataloader(dev_dataset, batch_size=args.batch_size, device=model.device)
     if args.recall_estimate is not None:
         metrics_to_display = ["recall_estimate", "F_estimate"]
@@ -172,11 +170,8 @@ if __name__ == "__main__":
         checkpoint_dir=args.checkpoint_dir, save_all_checkpoints=args.save_all_checkpoints,
         validate_metric=validate_metric, evaluate_after=True
     )
+    metric_args["lr"] = optimizer_args["lr"]
     model_trainer.train(model, train_dataloader, dev_dataloader, **metric_args, **progress_bar_args)
-    # train_model(model, train_dataloader, dev_dataloader, epochs=args.epochs, initial_epoch=args.initial_epoch,
-    #             checkpoint_dir=args.checkpoint_dir, save_all_checkpoints=args.save_all_checkpoints,
-    #             validate_metric=validate_metric, evaluate_after=True,
-    #             **metric_args, **progress_bar_args)
     predictions = predict_with_model(model, dev_dataset, batch_size=args.batch_size, threshold=args.threshold)
     if args.checkpoint_dir is not None:
         fmetrics = open(os.path.join(args.checkpoint_dir, "metrics.jsonl"), "w", encoding="utf8")
@@ -195,18 +190,3 @@ if __name__ == "__main__":
     if args.checkpoint_dir is not None:
         outfile = os.path.join(args.checkpoint_dir, "output.out")
         output_predictions(predictions, dev_data, file=outfile)
-    # for i in range(50):
-    #     for j, batch in enumerate(train_dataloader):
-    #         loss = model.train_on_batch(batch)
-    #         y_pred, y_true = extract_labels(loss, batch)
-    #         stats = dict(get_batch_metrics(y_pred, y_true, metric_func=item_score_func))
-    #         print(i, j, end=" ")
-    #         for key, value in loss.items():
-    #             if "loss" in key:
-    #                 print(f"{key}={value:.2f}", end=" ")
-    #         # print("")
-    #         # print(*([round(x, 2) for elem in y_pred for x in elem]))
-    #         # print(batch["label"].tolist())
-    #         for key, value in stats.items():
-    #             print(f"{key}={value}", end=" ")
-    #         print("")

@@ -1,14 +1,18 @@
-# Improved grammatical error correction by ranking elementary edits
-Code for EMNLP2022 paper **Improved grammatical error correction by ranking elementary edits** that provides a
-state-of-the-art approach to grammatical error correction.
+# ALRMR-GEC: Adjusting Learning Rate Based on Memory Rate to Optimize the Edit Scorer for Grammatical Error Correction
+Code for AAAI2025 paper **ALRMR-GEC: Adjusting Learning Rate Based on Memory Rate to Optimize the Edit Scorer for Grammatical Error Correction** that provides a
+novel approach to adjust learning rate on grammatical error correction.
 
 ## Installation
+* `conda create -n ALRMR-GEC python=3.8`
+* `conda activate ALRMR-GEC`
+* `pip install torch==2.1.1+cu121 torchvision==0.16.1+cu121 torchaudio==2.1.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121`
 * `pip install -r requirements.txt`
+* `python train.py -t bea.train.variants -T bea.dev.variants -m roberta-base -L checkpoint_2.pt -c checkpoints/ -M 768 --loss_by_class  --save_all_checkpoints --only_generated`
 * (optional) Install [ERRANT](https://github.com/chrisjbryant/errant) for evaluation.
 
 ## Data
 
-* Download W\&I-LOCNESS data
+* Details can be seen at
 ```shell
 mkdir -p data
 cd data && wget https://www.cl.cam.ac.uk/research/nl/bea2019st/data/wi+locness_v2.1.bea19.tar.gz

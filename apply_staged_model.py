@@ -18,6 +18,7 @@ from ranking.score_utils import extract_edits, score_corrections, predict_by_sta
 from utils.data_utils import read_test_file
 from utils.utils import make_offsets, apply_simple_edit
 
+os.environ['CURL_CA_BUNDLE'] = ''
 argument_parser = ArgumentParser()
 argument_parser.add_argument("-m", "--model", default="roberta-base")
 argument_parser.add_argument("-i", "--input_file", default="data/english/dev.bea.m2")
@@ -89,7 +90,7 @@ if __name__ == "__main__":
     os.makedirs(outdir, exist_ok=True)
     if args.alpha_source is None:
         args.alpha_source = []
-    args.alpha_source = [0.0] + sorted(set(args.alpha_source))
+    args.alpha_source = [0.1]
     for alpha in args.alpha_source:
         print(f"Source model weights={alpha:.2f}")
         for threshold in args.stage_thresholds:
