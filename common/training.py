@@ -140,8 +140,13 @@ class ModelTrainer:
         self.validate_metric = validate_metric
         self.less_is_better = less_is_better
         self.notelist = {}
+        self.renum = 0
+        self.correctflag = 0
+        self.flagnum = -1
+        self.nochangenum = 0
         self.lasttrainacc = 0
         self.lastvalacc = 0
+        self.correct_num = 0
         self.all_num = 0
         self.testvalidate = 0
         self.newflag = False
@@ -156,7 +161,7 @@ class ModelTrainer:
                  ncols=200, dynamic_ncols=False, count_mode="batch", total=None,
                  check_field="input_ids", check_dim=1, max_length=512, **kwargs):
         metrics = {"n_batches": 0, "loss": 0.0}
-        self.correct_num = {}
+        self.correct_num = 0
         self.all_num = 0
         func = model.train_on_batch if mode == "train" else model.validate_on_batch
         if count_mode == "batch":
@@ -215,8 +220,8 @@ class ModelTrainer:
                                                     if self.testvalidate == 1:
                                                         if noteindex in self.correctlist and "error_list" in self.correctlist[noteindex] and index_list[num] in self.correctlist[noteindex]["error_list"] :
                                                             if batch_metrics["error_list"][i][index] == 1 :
-                                                                self.correct_num["error_list"] = self.correct_num["error_list"] + 1
-                                                                self.all_num = self.all_num + 1
+                                                                self.correct_num = self.correct_num + 1
+                                                            self.all_num = self.all_num + 1
                                                 else:
                                                     if self.notelist[noteindex]["error_list"][index_list[num]] == 0 and batch_metrics["error_list"][i][index] == 1 and (num + 1) not in batch["offset"]:
                                                         if noteindex not in self.correctlist:
@@ -336,11 +341,11 @@ class ModelTrainer:
                     self.correctflag = 0
                     file.flush()
                     continue
-                self.correctflag = 1
+                self.correctflag = 2
                 file.write("The epoch is {:.1f}\n".format(epoch))
                 file.write("The trainacc is {:.3f}\n".format(self.trainacc))
                 file.write("The valacc is {:.3f}\n".format(self.valacc))
-                self.lastmero = self.correct_num["error_list"] / self.all_num
+                self.lastmero = self.correct_num / self.all_num
                 self.stagenum = self.lastmero
                 file.write("The number is {:.4f}\n".format(self.lastmero))
                 file.write("The lr is {:.4e}\n".format(self.new_lr))
@@ -362,20 +367,20 @@ class ModelTrainer:
                     self.correctflag = 0
                     file.flush()
                     continue
-                self.lastmero = self.correct_num["error_list"] / self.all_num
-                self.stagenum = self.lastmero
-                file.write("The number is {:.4f}\n".format(self.lastmero))
-                self.renum = 0
-                self.nochangenum = 0
-                self.flagnum = 0
+                self.nowmero = self.correct_num / self.all_num
+                file.write("The number is {:.4f}\n".format(self.nowmero))
                 if self.nowmero > self.lastmero + 0.001:
-                    if self.flagnum == 0:
+                    if self.flagnum == -1:
+                        self.renum = 1
+                    elif self.flagnum == 0:
                         self.renum = self.renum + 1
                     else:
                         self.renum = 0
                     self.flagnum = 0
                 elif self.nowmero < self.lastmero - 0.001:
-                    if self.flagnum == 1:
+                    if self.flagnum == -1:
+                        self.renum = 1
+                    elif self.flagnum == 1:
                         self.renum = self.renum + 1
                     else:
                         self.renum = 0
@@ -388,9 +393,6 @@ class ModelTrainer:
                         else:
                             self.new_lr = self.new_lr * 10
                         self.newflag = True
-                        self.renum = 0
-                        self.correctflag = 0
-                        self.nochangenum = 0
                     elif (self.nowmero < self.lastmero - 0.005) or (self.renum > 1 and self.nowmero < self.lastmero):
                         self.max_lr = self.new_lr
                         if self.min_lr > -1 and self.min_lr < self.new_lr:
@@ -398,9 +400,6 @@ class ModelTrainer:
                         else:
                             self.new_lr = self.new_lr * (1 / 10)
                         self.newflag = True
-                        self.renum = 0
-                        self.correctflag = 0
-                        self.nochangenum = 0
                     else:
                         self.correctflag = 2
                         self.initmodel = False
@@ -409,28 +408,24 @@ class ModelTrainer:
                     if (self.nowmero > self.stagenum + 0.01) or (self.renum > 1 and self.nowmero > self.lastmero):
                         self.new_lr = self.new_lr*1.2
                         self.newflag = True
-                        self.renum = 0
-                        self.correctflag = 0
-                        self.nochangenum = 0
                     elif (self.nowmero < self.stagenum - 0.01) or (self.renum > 1 and self.nowmero < self.lastmero):
                         self.new_lr = self.new_lr*0.8
                         self.newflag = True
-                        self.renum = 0
-                        self.correctflag = 0
-                        self.nochangenum = 0
                     else:
                         self.correctflag = 2
                         self.nochangenum = self.nochangenum + 1
+                self.lastmero = self.nowmero
                 if self.nochangenum > 5:
                     self.new_lr = self.new_lr * 0.9
                     self.newflag = True
-                    self.renum = 0
-                    self.correctflag = 0
-                    self.nochangenum = 0
                 if self.newflag == True:
                     del self.correctlist
                     del self.notelist
                     gc.collect()
+                    self.renum = 0
+                    self.correctflag = 0
+                    self.flagnum = -1
+                    self.nochangenum = 0
                     self.initmodelflag = True
                     self.notelist = {}
                     self.correctlist = {}
